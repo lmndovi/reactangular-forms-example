@@ -23,7 +23,7 @@ export const TemplateInputContainer: FC<ITemplateInputContainer> = (props) => {
         <div>
           <div>
             <label style={{ color: validationErrors ? "red" : "black" }}>
-              {label} -{status}
+              {label} -{status} ---SSSS
             </label>
           </div>
           {status === "SUCCESS" ? (
