@@ -13,8 +13,7 @@ import { WDropDown, WInputText } from "../TemplateContainer/InputTemplates";
 import { TemplateInputContainer } from "../TemplateContainer/TemplateContainer";
 
 export const BasicForm: FC<any> = () => {
-  const asd = useState();
-
+  // const asd = useState();
   // const example= {
   //     name:'',     //FC
   //     document:{   //FG
@@ -29,7 +28,6 @@ export const BasicForm: FC<any> = () => {
   //         }
   //       }
   //     }
-
   // }
   const formConfig = useFormConfig({
     createForm: () => {
