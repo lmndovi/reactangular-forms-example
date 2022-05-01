@@ -177,7 +177,7 @@ export class RxExecutor<P, D> {
   private processorCapacity: number = 1;
   private enableCache: boolean = false;
   private concurrentDetailed: boolean = false;
-  private subscription: Subscription;
+  // private subscription: Subscription;
 
   constructor(
     private executeFn$: IRxExecuteFn<P, D>,
@@ -208,14 +208,14 @@ export class RxExecutor<P, D> {
 
     this.enableCache = !!tempConfig.cache;
 
-    this.subscription = this.init().subscribe();
+    // this.subscription = this.init().subscribe();
 
     this.execute = this.execute.bind(this);
     this.close = this.close.bind(this);
     this.init = this.init.bind(this);
   }
   close() {
-    this.subscription.unsubscribe();
+    // this.subscription.unsubscribe();
   }
 
   private cachedData: { [key: string]: D } = {};
@@ -323,7 +323,7 @@ export class RxExecutor<P, D> {
   //TODO:
   invalidCache() {}
 
-  private init() {
+  init() {
     const asyncOperation = getTypeOperation(this.operationType);
     console.log("started------------------");
     debugger;
@@ -383,15 +383,11 @@ export class RxExecutor<P, D> {
             : of(data$);
 
           this.processingExecutions.push(execution);
-          debugger;
-          // return loadData$.pipe(
-          return of({}).pipe(
-            delay(3000),
+          return loadData$.pipe(
+            // return of({}).pipe(
+            // delay(3000),
             tap(
               (resp) => {
-                alert("xxxx");
-                console.log(6);
-
                 const data = resp as D;
                 execution.succeed(data);
                 this.processingExecutions = this.processingExecutions.filter(

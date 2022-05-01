@@ -21,6 +21,14 @@ export const Comp = () => {
         onClick={() => {
           forceUpdate();
         }}
+      >
+        ForceUpdate
+      </button>
+
+      <button
+        onClick={() => {
+          execute({});
+        }}
       ></button>
       <h1>{status}</h1>
     </>
