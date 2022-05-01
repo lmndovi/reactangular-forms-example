@@ -20,6 +20,11 @@ export const TemplateInputContainer: FC<ITemplateInputContainer> = (props) => {
   return (
     <>
       <div style={{ color: color }}>
+        <ControlErrors>
+          {(message) => {
+            return <Message severity="error" text={message}></Message>;
+          }}
+        </ControlErrors>
         <div>
           <div>
             <label style={{ color: validationErrors ? "red" : "black" }}>
@@ -32,11 +37,6 @@ export const TemplateInputContainer: FC<ITemplateInputContainer> = (props) => {
             <Skeleton height="40px"></Skeleton>
           )}
         </div>
-        <ControlErrors>
-          {(message) => {
-            return <Message severity="error" text={message}></Message>;
-          }}
-        </ControlErrors>
       </div>
     </>
   );

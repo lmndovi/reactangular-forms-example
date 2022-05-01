@@ -83,7 +83,7 @@ export const SaveData: FC<any> = () => {
             </WFormControl>
           </div>
           <div className="p-md-2">
-            <WFormControl name="apellido">
+            <WFormControl name="apellido" errorMessages={{ maxLength: "sss" }}>
               <TemplateInputContainer label="Apellido">
                 <WInputText />
               </TemplateInputContainer>

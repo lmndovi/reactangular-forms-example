@@ -9,12 +9,14 @@ import {
   WFormControl,
   WFormGroup,
 } from "react-angular-forms";
+import { debounceTime } from "rxjs";
 import { WDropDown, WInputText } from "../TemplateContainer/InputTemplates";
 import { TemplateInputContainer } from "../TemplateContainer/TemplateContainer";
 
 export const BasicForm: FC<any> = () => {
   // const asd = useState();
-  // const example= {
+
+  // const example= { // FG
   //     name:'',     //FC
   //     document:{   //FG
   //       type:'asd', //FC
@@ -31,8 +33,7 @@ export const BasicForm: FC<any> = () => {
   // }
   const formConfig = useFormConfig({
     createForm: () => {
-      // FormControl, FormGroup , FormArray
-
+      // FormControl => WFormControl, FormGroup => WFormGroup, FormArray=>WFormArray , WFormArrayElement
       const form = new FormGroup({
         name: new FormControl(null, [
           Validators.required,
@@ -50,12 +51,26 @@ export const BasicForm: FC<any> = () => {
           }),
         }),
       });
+
+      form
+        .get("name")
+        ?.valueChanges.pipe(debounceTime(2000))
+        .subscribe((x) => {
+          // alert("d");
+        });
+
       return form;
     },
   });
+
   const { loadSucceed } = formConfig;
+
   useEffect(() => {
+    // .then((data)=>{
+
     loadSucceed({});
+
+    // })
   }, []);
   return (
     <>
@@ -72,7 +87,7 @@ export const BasicForm: FC<any> = () => {
           <div className="p-md-2">
             <WFormControl name="aaaaa.ssssss.ttt.fffffff">
               <TemplateInputContainer label="FFFFFFFF">
-                <WInputText />
+                <WInputText placeholder="" />
               </TemplateInputContainer>
             </WFormControl>
           </div>
@@ -92,7 +107,20 @@ export const BasicForm: FC<any> = () => {
               </WFormControl>
             </div>
             <div className="p-md-2">
-              <WFormControl name="number">
+              <WFormControl
+                name="number"
+                onChange={({
+                  value,
+                  prevValue,
+                  control,
+                  parentControl,
+                  rootControl,
+                }) => {
+                  if (value == 1) {
+                    parentControl.get("type")?.disable();
+                  }
+                }}
+              >
                 <TemplateInputContainer label="DOcument Number">
                   <WDropDown
                     options={[
