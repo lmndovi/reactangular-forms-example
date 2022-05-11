@@ -27,16 +27,28 @@ type ExecutionStatus =
   | "CANCELLED";
 
 interface IExecutionState<P, D> {
+  id?: string;
   params: P;
+  hashedParams?: string;
   status?: ExecutionStatus;
   data?: D;
   error: any;
 }
 
+const generateUniqSerial = () => {
+  return "xxxx-xxxx-xxx-xxxx".replace(/[x]/g, function (c) {
+    var r = (Math.random() * 16) | 0,
+      v = c == "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+};
+
 export class Execution<P, D> implements IExecutionState<P, D> {
+  id: string;
   status?: ExecutionStatus;
   data?: D;
   error: any;
+  hashedParams?: string;
   private _state$ = new Subject<Execution<P, D>>();
 
   get state$() {
@@ -46,7 +58,21 @@ export class Execution<P, D> implements IExecutionState<P, D> {
     return state$;
   }
 
-  constructor(public params: P, public executeFn$?: IRxExecuteFn<P, D>) {}
+  constructor(
+    public params: P,
+    public config: {
+      executeFn$?: IRxExecuteFn<P, D>;
+      cache?: boolean;
+      getId?: (params: P) => string;
+    }
+  ) {
+    const conf = config || {
+      cache: false,
+      getId: (params) => generateUniqSerial(),
+    };
+    this.hashedParams = conf.cache ? hash(params) : undefined;
+    this.id = conf.getId ? conf.getId(params) : generateUniqSerial();
+  }
 
   get state(): IExecutionState<P, D> {
     return this;
@@ -59,26 +85,13 @@ export class Execution<P, D> implements IExecutionState<P, D> {
   }
 
   processing() {
-    // if (this.type === "CONCURRENT")
-    //   if (this.status !== "WAITING") {
-    //     const error = {
-    //       code: "IllegalState",
-    //     };
-    //     throw error;
-    //   }
-    if (this.status === "PROCESSING") return;
+    // if (this.status === "PROCESSING") return;
     this.status = "PROCESSING";
     this._state$.next(this);
     return this.state;
   }
 
   succeed(data: D) {
-    if (this.status !== "PROCESSING") {
-      const error = {
-        code: "IllegalState",
-      };
-      throw error;
-    }
     this.data = data;
     this.status = "SUCCESS";
     this._state$.next(this);
@@ -86,12 +99,6 @@ export class Execution<P, D> implements IExecutionState<P, D> {
   }
 
   failed(error: any) {
-    if (this.status !== "PROCESSING") {
-      const error = {
-        code: "IllegalState",
-      };
-      throw error;
-    }
     this.error = error;
     this.status = "FAILED";
     this._state$.next(this);
@@ -161,6 +168,7 @@ export interface IExecutor<P, D> {
   onCancel?: OnCancelType<P>;
   onSuccess?: OnSuccessType<P, D>;
   onError?: OnErrorType<P>;
+  getId?: (params: P) => string;
 }
 
 export type IRxExecuteFn<P, D> = (params: P) => D | Promise<D> | Observable<D>;
@@ -235,7 +243,6 @@ export class RxExecutor<P, D> {
     executeFn$: IRxExecuteFn<P, D>,
     config?: IExecutor<P, D>
   ) {
-    console.log("static.create");
     return new RxExecutor<P, D>(executeFn$, config);
   }
 
@@ -244,7 +251,7 @@ export class RxExecutor<P, D> {
     config?: {
       executeFn$: IRxExecuteFn<P, D>;
 
-      getExecutionId?: (params: P) => string;
+      getId?: (params: P) => string;
       context?: { [key: string]: any };
       onWait?: OnWaitType<P>;
       onProcessing?: OnProcessingType<P>;
@@ -272,9 +279,14 @@ export class RxExecutor<P, D> {
       }
     }
     /************************************************++ */
-    const execution = new Execution<P, D>(params, config && config.executeFn$);
+    const execution = new Execution<P, D>(params, {
+      executeFn$: config?.executeFn$,
+      cache: this.config?.cache,
+      getId: this.config?.getId,
+    });
 
     execution.state$.subscribe((exec) => {
+      // alert("subscribe");
       if (this.executionType === "SEQUENTIAL") {
         this._status = exec.status;
       }
@@ -322,7 +334,6 @@ export class RxExecutor<P, D> {
           this.config.onCancel(exec.params, mergedContext);
       }
     });
-    console.log(2);
     this._internalExecution$.next(execution);
     return execution;
   }
@@ -379,7 +390,8 @@ export class RxExecutor<P, D> {
                   return of(execution);
                 }
               }
-              const executeFn$ = execution.executeFn$ || this.executeFn$;
+              const executeFn$ =
+                execution.config?.executeFn$ || this.executeFn$;
               const data$ = executeFn$
                 ? executeFn$(params)
                 : of(params).pipe(map((p: any) => p as D));
@@ -401,7 +413,7 @@ export class RxExecutor<P, D> {
                   }),
                   map(() => {
                     const execution = this.processingExecutions[0];
-                    execution.cancelled;
+                    execution.cancelled();
                     return execution.state;
                   })
                 ),
@@ -417,6 +429,7 @@ export class RxExecutor<P, D> {
                     this.processingExecutions.push(execution);
                   }),
                   map((execution) => {
+                    // alert("processing");
                     execution.processing();
                     return execution.state;
                   })

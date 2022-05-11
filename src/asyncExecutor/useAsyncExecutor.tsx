@@ -12,14 +12,15 @@ export const useAsyncExecutor = <P = any, D = any>(
 
   useEffect(() => {
     const subscription = asyncExecutor.state$.subscribe((x) => {
-      alert(1);
+      console.log("x", x);
+
       forceUpdate();
     });
     return () => {
       asyncExecutor.close();
       subscription.unsubscribe();
     };
-  }, []);
+  }, [asyncExecutor]);
 
   return asyncExecutor;
 };
