@@ -1,20 +1,23 @@
+import hash from "object-hash";
 import {
   catchError,
   concatMap,
-  delay,
   exhaustMap,
+  filter,
   from,
   map,
+  merge,
   mergeMap,
   Observable,
   of,
   shareReplay,
   Subject,
-  Subscription,
   switchMap,
   tap,
+  switchAll,
+  switchScan,
 } from "rxjs";
-import hash from "object-hash";
+import { ajax } from "rxjs/ajax";
 import { ModuleUtils } from "./lang";
 type ExecutionStatus =
   | "WAITING"
@@ -23,7 +26,14 @@ type ExecutionStatus =
   | "FAILED"
   | "CANCELLED";
 
-export class Execution<P, D> {
+interface IExecutionState<P, D> {
+  params: P;
+  status?: ExecutionStatus;
+  data?: D;
+  error: any;
+}
+
+export class Execution<P, D> implements IExecutionState<P, D> {
   status?: ExecutionStatus;
   data?: D;
   error: any;
@@ -38,9 +48,14 @@ export class Execution<P, D> {
 
   constructor(public params: P, public executeFn$?: IRxExecuteFn<P, D>) {}
 
+  get state(): IExecutionState<P, D> {
+    return this;
+  }
+
   wait() {
     this.status = "WAITING";
     this._state$.next(this);
+    return this.state;
   }
 
   processing() {
@@ -54,6 +69,7 @@ export class Execution<P, D> {
     if (this.status === "PROCESSING") return;
     this.status = "PROCESSING";
     this._state$.next(this);
+    return this.state;
   }
 
   succeed(data: D) {
@@ -66,6 +82,7 @@ export class Execution<P, D> {
     this.data = data;
     this.status = "SUCCESS";
     this._state$.next(this);
+    return this.state;
   }
 
   failed(error: any) {
@@ -78,11 +95,13 @@ export class Execution<P, D> {
     this.error = error;
     this.status = "FAILED";
     this._state$.next(this);
+    return this.state;
   }
 
   cancelled() {
     this.status = "CANCELLED";
     this._state$.next(this);
+    return this.state;
   }
 
   listen(callback: (execution: Execution<P, D>) => void) {
@@ -126,6 +145,7 @@ type OnErrorType<P> = (
 ) => void;
 
 export interface IExecutor<P, D> {
+  enabledRetry?: boolean;
   sequential?: "SWITCH" | "EXHAUST";
   concurrent?: {
     type?: "SWITCH" | "EXHAUST" | "MERGE" | "CONCAT";
@@ -151,8 +171,6 @@ export class RxExecutor<P, D> {
     return this._status;
   }
 
-  private _execution$ = new Subject<Execution<P, D>>();
-
   get isProcessing() {
     return this.status === "PROCESSING";
   }
@@ -167,9 +185,6 @@ export class RxExecutor<P, D> {
 
   retry(executionId?: string) {}
 
-  get execution$() {
-    return this._execution$.pipe(shareReplay());
-  }
   private _internalExecution$ = new Subject<Execution<P, D>>();
 
   private executionType: "SEQUENTIAL" | "CONCURRENT";
@@ -177,7 +192,6 @@ export class RxExecutor<P, D> {
   private processorCapacity: number = 1;
   private enableCache: boolean = false;
   private concurrentDetailed: boolean = false;
-  // private subscription: Subscription;
 
   constructor(
     private executeFn$: IRxExecuteFn<P, D>,
@@ -207,12 +221,9 @@ export class RxExecutor<P, D> {
     }
 
     this.enableCache = !!tempConfig.cache;
-
-    // this.subscription = this.init().subscribe();
-
     this.execute = this.execute.bind(this);
     this.close = this.close.bind(this);
-    this.init = this.init.bind(this);
+    // this.state$ = this.state$.bind(this);
   }
   close() {
     // this.subscription.unsubscribe();
@@ -244,12 +255,13 @@ export class RxExecutor<P, D> {
   ) {
     /* 1st case:  SEQUENTIAL - EXHAUST */
     console.log(1);
-
+    /*---- Effective Context -----------*/
     const context = (config ? config.context : {}) || {};
     const mergedContext = {
       ...((this.config && this.config.context) || {}),
       ...context,
     };
+
     if (
       this.executionType === "SEQUENTIAL" &&
       this.operationType === "EXHAUST"
@@ -263,7 +275,6 @@ export class RxExecutor<P, D> {
     const execution = new Execution<P, D>(params, config && config.executeFn$);
 
     execution.state$.subscribe((exec) => {
-      this._execution$.next(exec);
       if (this.executionType === "SEQUENTIAL") {
         this._status = exec.status;
       }
@@ -312,102 +323,131 @@ export class RxExecutor<P, D> {
       }
     });
     console.log(2);
-
     this._internalExecution$.next(execution);
-
     return execution;
   }
 
   private processingExecutions: Execution<P, D>[] = [];
+  private failedExecutions: Execution<P, D>[] = [];
 
   //TODO:
   invalidCache() {}
 
-  init() {
+  isFull(): boolean {
+    return this.processingExecutions.length >= this.processorCapacity;
+  }
+
+  get state$() {
     const asyncOperation = getTypeOperation(this.operationType);
-    console.log("started------------------");
-    debugger;
-
     return this._internalExecution$.pipe(
-      tap((execution) => {
-        console.log(3);
-        if (this.executionType === "CONCURRENT") {
-          if (this.operationType === "EXHAUST") {
-            execution.cancelled();
-          } else if (this.operationType === "SWITCH") {
-            this.processingExecutions.forEach((execution) => {
+      mergeMap((execution) => {
+        return merge(
+          of(execution).pipe(
+            filter(() => {
+              return (
+                this.operationType === "EXHAUST" &&
+                this.executionType === "CONCURRENT" &&
+                this.isFull()
+              );
+            }),
+            map((execution) => {
               execution.cancelled();
-            });
-          } else if (this.operationType === "CONCAT") {
-            execution.wait();
-            if (!this.concurrentDetailed) {
-              execution.processing();
-            }
-          } else if (this.operationType === "MERGE") {
-            execution.wait();
-            if (
-              !this.concurrentDetailed &&
-              this.processingExecutions.length === this.processorCapacity
-            ) {
-              execution.processing();
-            }
-          }
-        }
-      }),
-      asyncOperation(
-        (execution) => {
-          console.log(4);
-
-          execution.processing();
-          const { params } = execution;
-          if (this.enableCache) {
-            const key = hash(params);
-            const data = this.cachedData[key];
-            if (data !== undefined) {
-              execution.succeed(data);
-              return of(data);
-            }
-          }
-          console.log(5);
-
-          const executeFn$ = execution.executeFn$ || this.executeFn$;
-
-          const data$ = executeFn$
-            ? executeFn$(params)
-            : of(params).pipe(map((p: any) => p as D));
-
-          const loadData$: Observable<D> = ModuleUtils.isObservable(data$)
-            ? data$
-            : ModuleUtils.isPromise(data$)
-            ? from(data$)
-            : of(data$);
-
-          this.processingExecutions.push(execution);
-          return loadData$.pipe(
-            // return of({}).pipe(
-            // delay(3000),
-            tap(
-              (resp) => {
-                const data = resp as D;
-                execution.succeed(data);
-                this.processingExecutions = this.processingExecutions.filter(
-                  (e) => e !== execution
-                );
-              },
-              (error) => {
-                console.log(7);
-
-                execution.failed(error);
-                this.processingExecutions = this.processingExecutions.filter(
-                  (e) => e !== execution
-                );
+              return execution.state;
+            })
+          ),
+          of(execution).pipe(
+            filter((execution) => {
+              return (
+                this.operationType === "CONCAT" &&
+                this.executionType === "CONCURRENT" &&
+                this.isFull()
+              );
+            }),
+            map((execution) => {
+              execution.wait();
+              return execution.state;
+            })
+          ),
+          of(execution).pipe(
+            asyncOperation((execution) => {
+              const { params } = execution;
+              if (this.enableCache) {
+                const key = hash(params);
+                const data = this.cachedData[key];
+                if (data !== undefined) {
+                  execution.succeed(data);
+                  return of(execution);
+                }
               }
-            ),
-            catchError((error) => of(error))
-          );
-        }
-        // , this.processorCapacity
-      )
+              const executeFn$ = execution.executeFn$ || this.executeFn$;
+              const data$ = executeFn$
+                ? executeFn$(params)
+                : of(params).pipe(map((p: any) => p as D));
+
+              const loadData$: Observable<D> = ModuleUtils.isObservable(data$)
+                ? data$
+                : ModuleUtils.isPromise(data$)
+                ? from(data$)
+                : of(data$);
+
+              return merge(
+                of(execution).pipe(
+                  filter(() => {
+                    return (
+                      this.operationType === "SWITCH" &&
+                      this.executionType === "CONCURRENT" &&
+                      this.isFull()
+                    );
+                  }),
+                  map(() => {
+                    const execution = this.processingExecutions[0];
+                    execution.cancelled;
+                    return execution.state;
+                  })
+                ),
+                of(execution).pipe(
+                  filter((execution) => {
+                    return (
+                      this.operationType !== "SWITCH" ||
+                      this.executionType !== "SEQUENTIAL" ||
+                      !this.isFull()
+                    );
+                  }),
+                  tap((execution) => {
+                    this.processingExecutions.push(execution);
+                  }),
+                  map((execution) => {
+                    execution.processing();
+                    return execution.state;
+                  })
+                ),
+                loadData$.pipe(
+                  map((resp) => {
+                    execution.succeed(resp);
+                    return execution.state;
+                  }),
+                  tap(
+                    (execution) => {
+                      this.processingExecutions =
+                        this.processingExecutions.filter(
+                          (e) => e !== execution
+                        );
+                    },
+                    () => {
+                      //TODO
+                    }
+                  ),
+                  catchError((error) => {
+                    execution.failed(error);
+                    return of(execution.state);
+                  })
+                )
+              );
+            })
+          )
+        );
+      }),
+      shareReplay()
     );
   }
 }

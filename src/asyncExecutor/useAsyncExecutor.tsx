@@ -11,7 +11,7 @@ export const useAsyncExecutor = <P = any, D = any>(
   const [, forceUpdate] = useReducer((x) => x + 1, 0);
 
   useEffect(() => {
-    const subscription = asyncExecutor.init().subscribe((x) => {
+    const subscription = asyncExecutor.state$.subscribe((x) => {
       alert(1);
       forceUpdate();
     });
