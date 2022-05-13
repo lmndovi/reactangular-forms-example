@@ -261,7 +261,6 @@ export class RxExecutor<P, D> {
     }
   ) {
     /* 1st case:  SEQUENTIAL - EXHAUST */
-    console.log(1);
     /*---- Effective Context -----------*/
     const context = (config ? config.context : {}) || {};
     const mergedContext = {
@@ -286,11 +285,14 @@ export class RxExecutor<P, D> {
     });
 
     execution.state$.subscribe((exec) => {
-      // alert("subscribe");
+      console.log("333", exec.status);
+
       if (this.executionType === "SEQUENTIAL") {
         this._status = exec.status;
       }
       if (exec.status === "PROCESSING") {
+        console.log("", exec.status);
+
         config &&
           config.onProcessing &&
           config.onProcessing(exec.params, mergedContext);
@@ -418,7 +420,7 @@ export class RxExecutor<P, D> {
                   })
                 ),
                 of(execution).pipe(
-                  filter((execution) => {
+                  filter(() => {
                     return (
                       this.operationType !== "SWITCH" ||
                       this.executionType !== "SEQUENTIAL" ||
@@ -430,7 +432,11 @@ export class RxExecutor<P, D> {
                   }),
                   map((execution) => {
                     // alert("processing");
+                    console.log("11", execution.status);
+
                     execution.processing();
+                    console.log("22", execution.status);
+
                     return execution.state;
                   })
                 ),
@@ -441,10 +447,16 @@ export class RxExecutor<P, D> {
                   }),
                   tap(
                     (execution) => {
+                      console.log("init", this.processingExecutions.length);
+
                       this.processingExecutions =
                         this.processingExecutions.filter(
                           (e) => e !== execution
                         );
+                      console.log(
+                        `this.processingExecutions`,
+                        this.processingExecutions.length
+                      );
                     },
                     () => {
                       //TODO

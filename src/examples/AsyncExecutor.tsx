@@ -29,7 +29,9 @@ export const Comp = () => {
         onClick={() => {
           execute({});
         }}
-      ></button>
+      >
+        EXECUTE
+      </button>
       <h1>{status}</h1>
     </>
   );

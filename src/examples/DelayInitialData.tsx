@@ -14,8 +14,6 @@ import { TemplateInputContainer } from "../TemplateContainer/TemplateContainer";
 export const DelayInitialData: FC<any> = () => {
   const formConfig = useFormConfig({
     createForm: (data) => {
-      console.log(data);
-
       const form = new FormGroup({
         nombre: new FormControl(),
         apellido: new FormControl(),
