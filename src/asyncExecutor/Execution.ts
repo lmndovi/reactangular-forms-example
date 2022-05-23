@@ -16,6 +16,8 @@ import {
   tap,
   switchAll,
   switchScan,
+  share,
+  delay,
 } from "rxjs";
 import { ajax } from "rxjs/ajax";
 import { ModuleUtils } from "./lang";
@@ -159,7 +161,7 @@ export interface IExecutor<P, D> {
     detailed?: boolean;
     mergeCapacity: 0;
   };
-  params$: Observable<P>;
+  params$?: Observable<P>;
   cache?: boolean;
   cacheLifetimeime?: number;
   context?: { [key: string]: any };
@@ -285,10 +287,9 @@ export class RxExecutor<P, D> {
     });
 
     execution.state$.subscribe((exec) => {
-      console.log("333", exec.status);
-
       if (this.executionType === "SEQUENTIAL") {
-        this._status = exec.status;
+        if (this.operationType === "EXHAUST" || this.operationType === "SWITCH")
+          this._status = exec.status;
       }
       if (exec.status === "PROCESSING") {
         console.log("", exec.status);
@@ -350,129 +351,114 @@ export class RxExecutor<P, D> {
     return this.processingExecutions.length >= this.processorCapacity;
   }
 
+  //
+
   get state$() {
     const asyncOperation = getTypeOperation(this.operationType);
-    return this._internalExecution$.pipe(
-      mergeMap((execution) => {
-        return merge(
-          of(execution).pipe(
-            filter(() => {
-              return (
-                this.operationType === "EXHAUST" &&
-                this.executionType === "CONCURRENT" &&
-                this.isFull()
-              );
-            }),
-            map((execution) => {
-              execution.cancelled();
-              return execution.state;
-            })
-          ),
-          of(execution).pipe(
-            filter((execution) => {
-              return (
-                this.operationType === "CONCAT" &&
-                this.executionType === "CONCURRENT" &&
-                this.isFull()
-              );
-            }),
-            map((execution) => {
-              execution.wait();
-              return execution.state;
-            })
-          ),
-          of(execution).pipe(
-            asyncOperation((execution) => {
-              const { params } = execution;
-              if (this.enableCache) {
-                const key = hash(params);
-                const data = this.cachedData[key];
-                if (data !== undefined) {
-                  execution.succeed(data);
-                  return of(execution);
+    const waitingSubject = new Subject<Execution<P, D>>();
+    return merge(
+      waitingSubject.pipe(
+        filter(() => {
+          return (
+            this.operationType === "SWITCH" &&
+            this.executionType === "CONCURRENT"
+          );
+        }),
+        map((execution) => {
+          execution.wait();
+          return execution.state;
+        })
+      ),
+      this._internalExecution$.pipe(
+        tap((execution) => {
+          waitingSubject.next(execution);
+        }),
+        asyncOperation((execution) => {
+          const { params } = execution;
+          if (this.enableCache) {
+            const key = hash(params);
+            const data = this.cachedData[key];
+            if (data !== undefined) {
+              execution.succeed(data);
+              return of(execution);
+            }
+          }
+          const executeFn$ = execution.config?.executeFn$ || this.executeFn$;
+          const data$ = executeFn$
+            ? executeFn$(params)
+            : of(params).pipe(map((p: any) => p as D));
+
+          const loadData$: Observable<D> = ModuleUtils.isObservable(data$)
+            ? data$
+            : ModuleUtils.isPromise(data$)
+            ? from(data$)
+            : of(data$);
+
+          return merge(
+            of(execution).pipe(
+              filter(() => {
+                return (
+                  this.operationType === "SWITCH" &&
+                  this.executionType === "CONCURRENT" &&
+                  this.isFull()
+                );
+              }),
+              map(() => {
+                const execution = this.processingExecutions[0];
+                execution.cancelled();
+                return execution.state;
+              })
+            ),
+            of(execution).pipe(
+              filter(() => {
+                return (
+                  this.operationType !== "SWITCH" ||
+                  this.executionType !== "SEQUENTIAL" ||
+                  !this.isFull()
+                );
+              }),
+              tap((execution) => {
+                this.processingExecutions.push(execution);
+              }),
+              map((execution) => {
+                execution.processing();
+                // alert("processing");
+                return execution.state;
+              })
+            ),
+            loadData$.pipe(
+              map((resp) => {
+                execution.succeed(resp);
+                return execution.state;
+              }),
+              tap(
+                (execution) => {
+                  console.log("init", this.processingExecutions.length);
+
+                  this.processingExecutions = this.processingExecutions.filter(
+                    (e) => e !== execution
+                  );
+                  console.log(
+                    `this.processingExecutions`,
+                    this.processingExecutions.length
+                  );
+                },
+                () => {
+                  //TODO
                 }
-              }
-              const executeFn$ =
-                execution.config?.executeFn$ || this.executeFn$;
-              const data$ = executeFn$
-                ? executeFn$(params)
-                : of(params).pipe(map((p: any) => p as D));
-
-              const loadData$: Observable<D> = ModuleUtils.isObservable(data$)
-                ? data$
-                : ModuleUtils.isPromise(data$)
-                ? from(data$)
-                : of(data$);
-
-              return merge(
-                of(execution).pipe(
-                  filter(() => {
-                    return (
-                      this.operationType === "SWITCH" &&
-                      this.executionType === "CONCURRENT" &&
-                      this.isFull()
-                    );
-                  }),
-                  map(() => {
-                    const execution = this.processingExecutions[0];
-                    execution.cancelled();
-                    return execution.state;
-                  })
-                ),
-                of(execution).pipe(
-                  filter(() => {
-                    return (
-                      this.operationType !== "SWITCH" ||
-                      this.executionType !== "SEQUENTIAL" ||
-                      !this.isFull()
-                    );
-                  }),
-                  tap((execution) => {
-                    this.processingExecutions.push(execution);
-                  }),
-                  map((execution) => {
-                    // alert("processing");
-                    console.log("11", execution.status);
-
-                    execution.processing();
-                    console.log("22", execution.status);
-
-                    return execution.state;
-                  })
-                ),
-                loadData$.pipe(
-                  map((resp) => {
-                    execution.succeed(resp);
-                    return execution.state;
-                  }),
-                  tap(
-                    (execution) => {
-                      console.log("init", this.processingExecutions.length);
-
-                      this.processingExecutions =
-                        this.processingExecutions.filter(
-                          (e) => e !== execution
-                        );
-                      console.log(
-                        `this.processingExecutions`,
-                        this.processingExecutions.length
-                      );
-                    },
-                    () => {
-                      //TODO
-                    }
-                  ),
-                  catchError((error) => {
-                    execution.failed(error);
-                    return of(execution.state);
-                  })
-                )
-              );
+              ),
+              catchError((error) => {
+                execution.failed(error);
+                return of(execution.state);
+              })
+            )
+          ).pipe(
+            tap((x) => {
+              console.log(`ccd.tap ${x.status}`);
             })
-          )
-        );
-      }),
-      shareReplay()
-    );
+          );
+        })
+      )
+    ).pipe(shareReplay());
   }
 }

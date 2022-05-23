@@ -16,8 +16,9 @@ import { TemplateInputContainer } from "../TemplateContainer/TemplateContainer";
 export const BasicForm: FC<any> = () => {
   // const asd = useState();
 
-  // const example= { // FG
-  //     name:'',     //FC
+  //                      FA              WFormArray  => WFormArrarElement  
+  // const example= { // FG               WFormGroup
+  //     name:'sdds',     //FC            WFormControl
   //     document:{   //FG
   //       type:'asd', //FC
   //       number:''
@@ -37,7 +38,7 @@ export const BasicForm: FC<any> = () => {
       const form = new FormGroup({
         name: new FormControl(null, [
           Validators.required,
-          Validators.minLength(8),
+          Validators.minLength(8)
         ]),
         document: new FormGroup({
           type: new FormControl(), //'document.type' || 'type'
@@ -56,7 +57,7 @@ export const BasicForm: FC<any> = () => {
         .get("name")
         ?.valueChanges.pipe(debounceTime(2000))
         .subscribe((x) => {
-          // alert("d");
+          alert(x);
         });
 
       return form;
@@ -72,6 +73,26 @@ export const BasicForm: FC<any> = () => {
 
     // })
   }, []);
+
+
+  // const form = new FormGroup({
+  //   name: new FormControl(null, [
+  //     Validators.required,
+  //     Validators.minLength(8)
+  //   ]),
+  //   document: new FormGroup({
+  //     type: new FormControl(), //'document.type' || 'type'
+  //     number: new FormControl(),
+  //   }),
+  //   aaaaa: new FormGroup({
+  //     ssssss: new FormGroup({
+  //       ttt: new FormGroup({
+  //         fffffff: new FormControl(),
+  //       }),
+  //     }),
+  //   }),
+  // });
+
   return (
     <>
       <WForm formConfig={formConfig}>

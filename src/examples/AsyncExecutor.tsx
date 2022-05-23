@@ -7,12 +7,18 @@ import { useAsyncExecutor } from "../asyncExecutor/useAsyncExecutor";
 export const Comp = () => {
   const [, forceUpdate] = useReducer((x) => x + 1, 0);
 
-  const { execute, status } = useAsyncExecutor((w) => {
-    return of({}).pipe(delay(3000));
-  });
+  const { execute, status } = useAsyncExecutor(
+    (params) => {
+      return of({}).pipe(delay(3000));
+    },
+    {
+      sequential: "EXHAUST",
+      params$: of({ q: 3 }),
+    }
+  );
 
   useEffect(() => {
-    execute({});
+    execute({ q: 4 });
   }, [execute]);
 
   return (
@@ -27,7 +33,7 @@ export const Comp = () => {
 
       <button
         onClick={() => {
-          execute({});
+          execute({ q: 4 });
         }}
       >
         EXECUTE
