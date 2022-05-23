@@ -1,28 +1,34 @@
 import { useEffect, useReducer } from "react";
 import { of } from "rxjs";
-import { delay } from "rxjs/operators";
+import { delay, switchMap } from "rxjs/operators";
 
-import { useAsyncExecutor } from "../asyncExecutor/useAsyncExecutor";
+import { useAsyncExecutor2 } from "../asyncExecutor/useAsyncExecutor";
 
 export const Comp = () => {
   const [, forceUpdate] = useReducer((x) => x + 1, 0);
 
-  const { execute, status } = useAsyncExecutor(
+  const { execute, status, data, state$ } = useAsyncExecutor2(
     (params) => {
-      return of({}).pipe(delay(3000));
+      return of({ params }).pipe(delay(3000));
     },
     {
       sequential: "EXHAUST",
       params$: of({ q: 3 }),
+      cache: true,
+      onProcessing: () => {},
+      onSuccess: (resp) => {},
     }
   );
 
   useEffect(() => {
+    of({}).pipe(switchMap((x) => execute({ q: 3 }).state$));
+
     execute({ q: 4 });
   }, [execute]);
 
   return (
     <>
+      {JSON.stringify(data, null, 2)}
       <button
         onClick={() => {
           forceUpdate();
@@ -33,7 +39,7 @@ export const Comp = () => {
 
       <button
         onClick={() => {
-          execute({ q: 4 });
+          execute({ q: 5 });
         }}
       >
         EXECUTE

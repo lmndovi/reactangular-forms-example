@@ -14,12 +14,7 @@ import {
   Subject,
   switchMap,
   tap,
-  switchAll,
-  switchScan,
-  share,
-  delay,
 } from "rxjs";
-import { ajax } from "rxjs/ajax";
 import { ModuleUtils } from "./lang";
 type ExecutionStatus =
   | "WAITING"
@@ -40,7 +35,7 @@ interface IExecutionState<P, D> {
 const generateUniqSerial = () => {
   return "xxxx-xxxx-xxx-xxxx".replace(/[x]/g, function (c) {
     var r = (Math.random() * 16) | 0,
-      v = c == "x" ? r : (r & 0x3) | 0x8;
+      v = c === "x" ? r : (r & 0x3) | 0x8;
     return v.toString(16);
   });
 };
@@ -177,8 +172,13 @@ export type IRxExecuteFn<P, D> = (params: P) => D | Promise<D> | Observable<D>;
 
 export class RxExecutor<P, D> {
   private _status?: ExecutionStatus;
+  private _data?: D;
   get status() {
     return this._status;
+  }
+
+  get data() {
+    return this._data;
   }
 
   get isProcessing() {
@@ -234,12 +234,15 @@ export class RxExecutor<P, D> {
     this.execute = this.execute.bind(this);
     this.close = this.close.bind(this);
     // this.state$ = this.state$.bind(this);
+    this.getExecution = this.getExecution.bind(this);
   }
   close() {
     // this.subscription.unsubscribe();
   }
 
   private cachedData: { [key: string]: D } = {};
+
+  private cachedExecution: { [key: string]: Execution<P, D> } = {};
 
   static create<P, D>(
     executeFn$: IRxExecuteFn<P, D>,
@@ -248,11 +251,16 @@ export class RxExecutor<P, D> {
     return new RxExecutor<P, D>(executeFn$, config);
   }
 
+  _execution?: Execution<P, D>;
+
+  getExecution(id?: string) {
+    return this._execution;
+  }
+
   execute(
     params: P,
     config?: {
       executeFn$: IRxExecuteFn<P, D>;
-
       getId?: (params: P) => string;
       context?: { [key: string]: any };
       onWait?: OnWaitType<P>;
@@ -262,8 +270,24 @@ export class RxExecutor<P, D> {
       onError?: OnErrorType<P>;
     }
   ) {
-    /* 1st case:  SEQUENTIAL - EXHAUST */
-    /*---- Effective Context -----------*/
+    const execution = this._execute(params, config);
+    this._execution = execution;
+    return execution;
+  }
+
+  private _execute(
+    params: P,
+    config?: {
+      executeFn$: IRxExecuteFn<P, D>;
+      getId?: (params: P) => string;
+      context?: { [key: string]: any };
+      onWait?: OnWaitType<P>;
+      onProcessing?: OnProcessingType<P>;
+      onCancel?: OnCancelType<P>;
+      onSuccess?: OnSuccessType<P, D>;
+      onError?: OnErrorType<P>;
+    }
+  ) {
     const context = (config ? config.context : {}) || {};
     const mergedContext = {
       ...((this.config && this.config.context) || {}),
@@ -279,17 +303,26 @@ export class RxExecutor<P, D> {
         return currentxecution;
       }
     }
-    /************************************************++ */
+
     const execution = new Execution<P, D>(params, {
       executeFn$: config?.executeFn$,
       cache: this.config?.cache,
       getId: this.config?.getId,
     });
+    if (this.enableCache) {
+      const key = hash(params);
+      this.cachedExecution[key] = execution;
+    }
 
     execution.state$.subscribe((exec) => {
       if (this.executionType === "SEQUENTIAL") {
-        if (this.operationType === "EXHAUST" || this.operationType === "SWITCH")
+        if (
+          this.operationType === "EXHAUST" ||
+          this.operationType === "SWITCH"
+        ) {
           this._status = exec.status;
+          if (this._status === "SUCCESS") this._data = exec.data;
+        }
       }
       if (exec.status === "PROCESSING") {
         console.log("", exec.status);
@@ -344,14 +377,11 @@ export class RxExecutor<P, D> {
   private processingExecutions: Execution<P, D>[] = [];
   private failedExecutions: Execution<P, D>[] = [];
 
-  //TODO:
   invalidCache() {}
 
   isFull(): boolean {
     return this.processingExecutions.length >= this.processorCapacity;
   }
-
-  //
 
   get state$() {
     const asyncOperation = getTypeOperation(this.operationType);
@@ -379,7 +409,7 @@ export class RxExecutor<P, D> {
             const key = hash(params);
             const data = this.cachedData[key];
             if (data !== undefined) {
-              execution.succeed(data);
+              execution.succeed({ ...data, cached: true });
               return of(execution);
             }
           }
@@ -422,7 +452,6 @@ export class RxExecutor<P, D> {
               }),
               map((execution) => {
                 execution.processing();
-                // alert("processing");
                 return execution.state;
               })
             ),
@@ -433,15 +462,12 @@ export class RxExecutor<P, D> {
               }),
               tap(
                 (execution) => {
-                  console.log("init", this.processingExecutions.length);
-
                   this.processingExecutions = this.processingExecutions.filter(
                     (e) => e !== execution
                   );
-                  console.log(
-                    `this.processingExecutions`,
-                    this.processingExecutions.length
-                  );
+                  if (this.enableCache) {
+                    this.cachedData[execution.hashedParams!] = execution.data!;
+                  }
                 },
                 () => {
                   //TODO
